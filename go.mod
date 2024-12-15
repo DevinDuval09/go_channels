@@ -1,3 +1,3 @@
-module channel_client
+module channelClient
 
 go 1.23.4

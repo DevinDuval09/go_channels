@@ -13,8 +13,8 @@ func main() {
 
 	Okays := make(chan net.PacketConn)
 
-	for i := 0; i < 500; i++ {
-		go func() { Okays <- sendSubscribe(server_addr, i) }()
+	for i := 0; i < 3; i++ {
+		go func() { Okays <- sendSubscribe(*server_addr, i) }()
 		go acceptNotify(<-Okays)
 	}
 }
