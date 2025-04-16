@@ -7,7 +7,7 @@ import (
 
 func TestClientAndServer(t *testing.T) {
 	go runTwoResponseServer()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(10000 * time.Millisecond)
 	main()
 	want := true
 	actual := false

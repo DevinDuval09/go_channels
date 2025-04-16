@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
-	"fmt"
+	"log"
 	"net"
 )
 
@@ -13,28 +13,44 @@ type QueryAddr struct {
 	Query      Q
 }
 
+type IncomingRequest struct {
+	Connection net.PacketConn
+	Client     net.Addr
+	Buffer     []byte
+	BuffSize   int
+}
+
 func sendOkay(client net.PacketConn, client_addr net.Addr, buffer []byte) QueryAddr {
+	log.Println("Sending okay to ", client_addr)
+
 	var q Q
-	network := net.Buffers{buffer}
-	decoder := gob.NewDecoder(&network)
-	err := decoder.Decode(&q)
+
+	err := q.UnmarshalBinary(buffer)
 	if err != nil {
-		fmt.Println("Server Handler error decoding query: ", err)
+		log.Println("Server Handler error decoding query: ", err)
 	}
+
+	log.Println("Deccoded Q: ", q)
 
 	response := q.Response("okay")
 
-	var response_buffer bytes.Buffer
-	encoder := gob.NewEncoder(&response_buffer)
+	response_buffer, err := response.MarshallBinary()
+	if err != nil {
+		log.Println("Server Handler error encoding response: ", err)
+	}
+	client.WriteTo(response_buffer, client_addr)
 
-	encoder.Encode(response)
-	client.WriteTo(response_buffer.Bytes(), client_addr)
+	log.Println("Server Sent: ", response)
 
 	return QueryAddr{Connection: client, Client: client_addr, Query: q}
 }
 
 func sendNotify(data QueryAddr) R {
+	log.Println("Sending Notify to ", data.Client)
+
 	response := data.Query.Response("Notify")
+
+	log.Println("Responding with ", response)
 
 	var response_buffer bytes.Buffer
 	encoder := gob.NewEncoder(&response_buffer)
@@ -46,29 +62,42 @@ func sendNotify(data QueryAddr) R {
 }
 
 func runTwoResponseServer() {
-	listener, err := net.ListenPacket("udp", ":50000")
-	if err != nil {
-		fmt.Println("Server Error setting up listener: ", err)
-	}
-	Notifies := make(chan QueryAddr)
+	log.Println("Starting two response server")
+	requests := make(chan IncomingRequest)
+	send_notify := make(chan QueryAddr)
 	Okays := make(chan R)
+	go func() {
+		req := <-requests
+		d := sendOkay(req.Connection, req.Client, req.Buffer[:req.BuffSize])
+		log.Println("Adding ", d, " to Notifies")
+		send_notify <- d
+	}()
+	go func() {
+		n := <-send_notify
+		log.Println("From Notifies channel: ", n)
+		Okays <- sendNotify(n)
+	}()
+	go func() {
+		r := <-Okays
+		log.Println("From Okays channel: ", r)
+	}()
+	listener, err := net.ListenPacket("udp", "127.0.0.1:50000")
+	if err != nil {
+		log.Println("Server Error setting up listener: ", err)
+	}
 
-	defer listener.Close()
+	log.Println("Listening on ", listener.LocalAddr())
+	//defer listener.Close()
 
 	for {
 		buff := make([]byte, 1024)
 		bytes_read, client_addr, err := listener.ReadFrom(buff)
+		log.Println("Number of bytes received: ", bytes_read)
 		if err != nil {
-			fmt.Println("Server Error accepting request: ", err)
+			log.Println("Server Error accepting request: ", err)
 		}
-		go func() { Notifies <- sendOkay(listener, client_addr, buff[:bytes_read]) }()
-		go func() {
-			Okays <- sendNotify(<-Notifies)
-		}()
-		go func() {
-			r := <-Okays
-			fmt.Println(r)
-		}()
+		requests <- IncomingRequest{Connection: listener, Client: client_addr, Buffer: buff, BuffSize: bytes_read}
+		log.Println("Received request from ", client_addr)
 	}
 
 }
