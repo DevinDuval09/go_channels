@@ -3,41 +3,45 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 	"log"
 	"net"
 )
 
-func sendSubscribe(server net.UDPAddr, ids chan int, messages chan string, out chan net.PacketConn) {
-	log.Println("Sending subscribe")
+var sub_count = 0
+
+func sendSubscribe(server net.UDPAddr, messages chan string, out chan net.PacketConn) {
+	log.Println("Client sending subscribe...")
+	//create subscribe query
+	message := <-messages
+	sub_count++
+	q := Q{Number: sub_count, Message: message}
+	log.Println("Client created query ", q)
 	//connect to server
 	conn, err := net.DialUDP("udp", nil, &server)
 	if err != nil {
 		log.Println("Client Error while connecting to server: ", err)
 	}
-	//create subscribe query
-	log.Println("sendSubscribe connected to address")
-	id := <-ids
-	message := <-messages
-	q := Q{Number: id, Message: message}
 
 	var b bytes.Buffer
 
 	encoder := gob.NewEncoder(&b)
 
-	encoder.Encode(q)
+	err = encoder.Encode(q)
+	if err != nil {
+		log.Println("Client error while encoding: ", err)
+	}
 
-	//log.Println("Encoded q")
+	log.Println("Encoded q")
 
-	log.Println("Sending subscribe")
 	conn.Write(b.Bytes())
-	log.Println("Client sent: ", q)
+	log.Println("Sent query")
 	out <- conn
 }
 
 func handleOk(conns chan net.PacketConn, out chan net.PacketConn) {
-	log.Println("Waiting on connection...")
+	log.Println("Client handling ok...")
 	conn := <-conns
-	log.Println("Received connection")
 	rbuf := make([]byte, 1024)
 	_, _, err := conn.ReadFrom(rbuf)
 	if err != nil {
@@ -51,7 +55,7 @@ var count int = 0
 
 func handleNotify(conns chan net.PacketConn) {
 	conn := <-conns
-	log.Println("Handling notify ", count)
+	log.Println("Client handling notify...", count)
 	count++
 	var r R
 	rbuf := make([]byte, 1024)
@@ -64,6 +68,8 @@ func handleNotify(conns chan net.PacketConn) {
 	decoder := gob.NewDecoder(&network)
 
 	decoder.Decode(&r)
+
+	fmt.Println("Received: ", r.Message)
 
 	q := Q{Number: count, Message: "ok"}
 

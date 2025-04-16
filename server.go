@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/gob"
+	"fmt"
 	"log"
 	"net"
 )
@@ -16,19 +18,11 @@ type QueryAddr struct {
 type IncomingRequest struct {
 	Connection net.PacketConn
 	Client     net.Addr
-	Buffer     []byte
-	BuffSize   int
+	Data       []byte
 }
 
-func sendOkay(client net.PacketConn, client_addr net.Addr, buffer []byte) QueryAddr {
-	log.Println("Sending okay to ", client_addr)
-
-	var q Q
-
-	err := q.UnmarshalBinary(buffer)
-	if err != nil {
-		log.Println("Server Handler error decoding query: ", err)
-	}
+func sendOkay(client net.PacketConn, client_addr net.Addr, q Q) QueryAddr {
+	fmt.Println("Server sending okay to ", client_addr)
 
 	log.Println("Deccoded Q: ", q)
 
@@ -46,7 +40,7 @@ func sendOkay(client net.PacketConn, client_addr net.Addr, buffer []byte) QueryA
 }
 
 func sendNotify(data QueryAddr) R {
-	log.Println("Sending Notify to ", data.Client)
+	fmt.Println("Server sending Notify to ", data.Client)
 
 	response := data.Query.Response("Notify")
 
@@ -67,17 +61,27 @@ func runTwoResponseServer() {
 	send_notify := make(chan QueryAddr)
 	Okays := make(chan R)
 	go func() {
+		log.Println("Server starting request handler...")
 		req := <-requests
-		d := sendOkay(req.Connection, req.Client, req.Buffer[:req.BuffSize])
+		log.Println("Recieved request")
+		reader := bytes.NewReader(req.Data)
+		var q Q
+		err := binary.Read(reader, binary.BigEndian, q)
+		if err != nil {
+			log.Println("Got error parsing buffer: ", err)
+		}
+		d := sendOkay(req.Connection, req.Client, q)
 		log.Println("Adding ", d, " to Notifies")
 		send_notify <- d
 	}()
 	go func() {
+		log.Println("Server starting notify sender...")
 		n := <-send_notify
 		log.Println("From Notifies channel: ", n)
 		Okays <- sendNotify(n)
 	}()
 	go func() {
+		log.Println("Server starting Okay sender...")
 		r := <-Okays
 		log.Println("From Okays channel: ", r)
 	}()
@@ -87,16 +91,17 @@ func runTwoResponseServer() {
 	}
 
 	log.Println("Listening on ", listener.LocalAddr())
-	//defer listener.Close()
+	defer listener.Close()
 
 	for {
 		buff := make([]byte, 1024)
 		bytes_read, client_addr, err := listener.ReadFrom(buff)
-		log.Println("Number of bytes received: ", bytes_read)
+		data := buff[:bytes_read]
+		log.Println("received data: ", data)
 		if err != nil {
 			log.Println("Server Error accepting request: ", err)
 		}
-		requests <- IncomingRequest{Connection: listener, Client: client_addr, Buffer: buff, BuffSize: bytes_read}
+		requests <- IncomingRequest{Connection: listener, Client: client_addr, Data: data}
 		log.Println("Received request from ", client_addr)
 	}
 
