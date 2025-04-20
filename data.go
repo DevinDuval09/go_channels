@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"log"
 )
 
 type Q struct {
-	Number  int
+	Number  uint32
+	Qsize   uint32
 	Message string
 }
 
@@ -20,32 +22,59 @@ func NewQ(buff []byte) (Q, error) {
 
 func (q Q) MarshallBinary() ([]byte, error) {
 
-	var b bytes.Buffer
-	_, err := fmt.Fprintln(&b, q.Number, q.Message)
-	if err != nil {
-		return nil, err
-	}
-	return b.Bytes(), nil
+	//figure out buffer size
+	intSize := 4
+	intBufferSize := (intSize * 2) + len(q.Message)
+	buff := make([]byte, intBufferSize)
+	binary.BigEndian.PutUint32(buff, q.Number)
+	q.Qsize = uint32(len(q.Message))
+	binary.BigEndian.PutUint32(buff[intSize:], q.Qsize)
+	copy(buff[8:], []byte(q.Message))
+	return buff, nil
 }
 
 func (q *Q) UnmarshalBinary(data []byte) error {
-	b := bytes.NewBuffer((data))
+	//b := bytes.NewBuffer((data))
+	log.Println("Incoming unmarshal buffer: ", data)
+	numSize := 4
+	var qnumber uint32
+	var messagesize uint32
+	var message string
+	//err := binary.Read(b, binary.BigEndian, qnumber)
+	//if err != nil {
+	//	return fmt.Errorf("failed to ready query number: %s", err)
+	//}
+	log.Println("q data size: ", len(data))
+	copyBuff := make([]byte, len(data))
+	copy(copyBuff, data)
+	qnumber = binary.BigEndian.Uint32(copyBuff[:numSize])
+	log.Println("Parsed query number: ", qnumber)
+	messagesize = binary.BigEndian.Uint32(copyBuff[numSize:(numSize * 2)])
+	log.Println("Parsed message size: ", messagesize)
+	//stringbuffer := make([]byte, messagesize)
+	//b.Next(numSize * 2)
+	//size, err := io.ReadFull(b, stringbuffer)
+	//if size != int(messagesize) {
+	//	return fmt.Errorf("size mismatch parsing query message: %d, %d", messagesize, size)
+	//}
 
-	log.Println("Empty q: ", q)
+	message = string(copyBuff[(numSize * 2):]) //string(stringbuffer[:size])
 
-	//log.Println("Received buffer: ", b)
+	q.Number = qnumber
+	q.Qsize = messagesize
+	q.Message = message
 
-	n, err := fmt.Fscanln(b, &q.Number, &q.Message)
+	log.Println("Unmarshaled q: ", q)
 
-	log.Println("Unmarshaled q: ", q, " size ", n)
-
-	return err
+	return nil
 }
 
 type R struct {
-	Number   int
-	Qnumber  int
-	Message  string
+	Number  uint32
+	Qnumber uint32
+	//RMessageSize int
+	Message string
+	//QMessageSize int
 	Qmessage string
 }
 
@@ -67,5 +96,5 @@ func (r *R) UnmarshalBinary(data []byte) error {
 }
 
 func (q Q) Response(message string) R {
-	return R{Message: message, Number: q.Number + 1, Qmessage: q.Message, Qnumber: q.Number}
+	return R{Message: message, Number: q.Number, Qmessage: q.Message, Qnumber: q.Number}
 }

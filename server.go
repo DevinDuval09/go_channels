@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	"log"
@@ -64,11 +63,11 @@ func runTwoResponseServer() {
 		log.Println("Server starting request handler...")
 		req := <-requests
 		log.Println("Recieved request")
-		reader := bytes.NewReader(req.Data)
+		//reader := bytes.NewReader(req.Data)
 		var q Q
-		err := binary.Read(reader, binary.BigEndian, q)
+		err := q.UnmarshalBinary(req.Data)
 		if err != nil {
-			log.Println("Got error parsing buffer: ", err)
+			log.Println("Got error parsing query: ", err)
 		}
 		d := sendOkay(req.Connection, req.Client, q)
 		log.Println("Adding ", d, " to Notifies")
@@ -98,6 +97,7 @@ func runTwoResponseServer() {
 		bytes_read, client_addr, err := listener.ReadFrom(buff)
 		data := buff[:bytes_read]
 		log.Println("received data: ", data)
+		log.Println("data bytes: ", len(data))
 		if err != nil {
 			log.Println("Server Error accepting request: ", err)
 		}

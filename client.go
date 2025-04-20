@@ -15,7 +15,7 @@ func sendSubscribe(server net.UDPAddr, messages chan string, out chan net.Packet
 	//create subscribe query
 	message := <-messages
 	sub_count++
-	q := Q{Number: sub_count, Message: message}
+	q := Q{Number: uint32(sub_count), Qsize: uint32(len(message)), Message: message}
 	log.Println("Client created query ", q)
 	//connect to server
 	conn, err := net.DialUDP("udp", nil, &server)
@@ -23,18 +23,21 @@ func sendSubscribe(server net.UDPAddr, messages chan string, out chan net.Packet
 		log.Println("Client Error while connecting to server: ", err)
 	}
 
-	var b bytes.Buffer
-
-	encoder := gob.NewEncoder(&b)
-
-	err = encoder.Encode(q)
 	if err != nil {
 		log.Println("Client error while encoding: ", err)
 	}
 
 	log.Println("Encoded q")
+	b, err := q.MarshallBinary()
+	if err != nil {
+		log.Println("Error encoding query: ", err)
+		out <- nil
+	}
+	var check Q
+	check.UnmarshalBinary(b)
+	log.Println("Client check marshal: ", check)
 
-	conn.Write(b.Bytes())
+	conn.Write(b)
 	log.Println("Sent query")
 	out <- conn
 }
@@ -71,7 +74,7 @@ func handleNotify(conns chan net.PacketConn) {
 
 	fmt.Println("Received: ", r.Message)
 
-	q := Q{Number: count, Message: "ok"}
+	q := Q{Number: uint32(count), Message: "ok"}
 
 	var b bytes.Buffer
 
